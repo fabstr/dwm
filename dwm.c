@@ -43,6 +43,7 @@
 
 #include "drw.h"
 #include "util.h"
+#include "status.h"
 
 /* macros */
 #define BUTTONMASK              (ButtonPressMask|ButtonReleaseMask)
@@ -187,6 +188,7 @@ static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
 static void pop(Client *);
 static void propertynotify(XEvent *e);
+static void quitAndRestart(const Arg *arg);
 static void quit(const Arg *arg);
 static Monitor *recttomon(int x, int y, int w, int h);
 static void resize(Client *c, int x, int y, int w, int h, int interact);
@@ -259,6 +261,7 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[UnmapNotify] = unmapnotify
 };
 static Atom wmatom[WMLast], netatom[NetLast];
+static int restarting = 0;
 static int running = 1;
 static Cur *cursor[CurLast];
 static ClrScheme scheme[SchemeLast];
@@ -1268,6 +1271,13 @@ propertynotify(XEvent *e)
 }
 
 void
+quitAndRestart(const Arg *arg)
+{
+	running = 0;
+	restarting = 1;
+}
+
+void
 quit(const Arg *arg)
 {
 	running = 0;
@@ -1606,6 +1616,10 @@ setup(void)
 	XSelectInput(dpy, root, wa.event_mask);
 	grabkeys();
 	focus(NULL);
+
+	char *cmd[] = {"setxkbmap", "-option", "caps:escape"};
+	Arg a = {.v = cmd};
+	spawn(&a);
 }
 
 void
@@ -2125,6 +2139,7 @@ zoom(const Arg *arg)
 	pop(c);
 }
 
+
 int
 main(int argc, char *argv[])
 {
@@ -2136,11 +2151,26 @@ main(int argc, char *argv[])
 		fputs("warning: no locale support\n", stderr);
 	if (!(dpy = XOpenDisplay(NULL)))
 		die("dwm: cannot open display\n");
+
+	pid_t status_pid;
+	if ((status_pid = fork()) == 0) {
+		dwmstatus();
+		return EXIT_SUCCESS;
+	}
+
 	checkotherwm();
 	setup();
 	scan();
+
 	run();
 	cleanup();
 	XCloseDisplay(dpy);
+
+	kill(status_pid, 15);
+
+	if (restarting) {
+		execlp("dwm", "dwm");
+	}
+
 	return EXIT_SUCCESS;
 }
